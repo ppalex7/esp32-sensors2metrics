@@ -66,6 +66,17 @@ static void configure_i2c()
     add_bmp_device_to_i2c_bus();
 }
 
+#if CONFIG_DEBUG_HTTP_CLIENT
+esp_err_t _http_event_handler(esp_http_client_event_t *evt)
+{
+    if (evt->event_id == HTTP_EVENT_ON_DATA)
+    {
+        printf("Error Response: %.*s\n", evt->data_len, (char *)evt->data);
+    }
+    return ESP_OK;
+}
+#endif
+
 void send_metrics(bmp_measurement *bmp, sensirion_measurement *sensirion)
 {
     ESP_LOGD(TAG, "prepare JSON data for monitoring");
@@ -112,6 +123,9 @@ void send_metrics(bmp_measurement *bmp, sensirion_measurement *sensirion)
         .host = "monitoring.api.cloud.yandex.net",
         .path = "/monitoring/v2/data/write",
         .query = ("service=custom&folderId=" CONFIG_MONITORING_FOLDER),
+#if CONFIG_DEBUG_HTTP_CLIENT
+        .event_handler = _http_event_handler,
+#endif
     };
     esp_http_client_handle_t client = esp_http_client_init(&config);
 
@@ -145,6 +159,10 @@ void app_main(void)
 
     configure_gpio();
     configure_i2c();
+
+#if CONFIG_DEBUG_HTTP_CLIENT
+    esp_log_level_set("HTTP_CLIENT", ESP_LOG_VERBOSE);
+#endif
 
     esp_err_t ret;
     int retries = 20;

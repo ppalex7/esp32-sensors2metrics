@@ -51,3 +51,11 @@ menu "I2C Configuration"
         default 50
 
 endmenu
+
+menu "Application debug options"
+    config DEBUG_HTTP_CLIENT
+    bool "Enable debug for http_client"
+    default 1
+    help 
+        Verbose logs and response printing
+endmenu
