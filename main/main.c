@@ -178,8 +178,10 @@ void app_main(void)
 
     bmp_measurement bmp_measurement;
     sensirion_measurement sensirion_measurement;
+    TickType_t xCycleStartTime;
     while (1)
     {
+        xCycleStartTime = xTaskGetTickCount();
         bmp_read_measurement(&bmp_measurement);
         sensirion_set_ambient_pressure(bmp_measurement.pressure);
 
@@ -200,6 +202,6 @@ void app_main(void)
         {
             ESP_LOGW(TAG, "data from sensirion is not available");
         }
-        vTaskDelay(pdMS_TO_TICKS(10000));
+        vTaskDelayUntil(&xCycleStartTime, pdMS_TO_TICKS(15000));
     }
 }
