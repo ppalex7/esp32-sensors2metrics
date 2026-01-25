@@ -13,3 +13,8 @@ idf_component_register(SRCS
                               esp_wifi
                               nvs_flash
                        INCLUDE_DIRS ".")
+
+if(NOT CONFIG_MONITORING_LABEL_LOCATION)
+     add_definitions(-DCONFIG_MONITORING_LABEL_LOCATION_IS_EMPTY=1)
+     message(WARNING "Переменная CONFIG_MONITORING_LABEL_LOCATION не задана")    
+endif()

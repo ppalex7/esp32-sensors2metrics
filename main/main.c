@@ -83,6 +83,9 @@ void send_metrics(bmp_measurement *bmp, sensirion_measurement *sensirion)
     cJSON *root = cJSON_CreateObject();
 
     cJSON *labels = cJSON_AddObjectToObject(root, "labels");
+#if CONFIG_MONITORING_LABEL_LOCATION_IS_EMPTY
+#error "location label is mandatory"
+#endif
     cJSON_AddStringToObject(labels, "location", CONFIG_MONITORING_LABEL_LOCATION);
     cJSON_AddStringToObject(labels, "room", CONFIG_MONITORING_LABEL_ROOM);
     if (b_tmp_metric)
