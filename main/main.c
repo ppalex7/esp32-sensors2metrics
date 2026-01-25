@@ -153,6 +153,7 @@ void send_metrics(bmp_measurement *bmp, sensirion_measurement *sensirion)
 
     free(post_data);
     cJSON_Delete(root);
+    esp_http_client_cleanup(client);
 }
 
 void app_main(void)

@@ -55,7 +55,7 @@ endmenu
 menu "Application debug options"
     config DEBUG_HTTP_CLIENT
     bool "Enable debug for http_client"
-    default 1
+    default 0
     help 
         Verbose logs and response printing
 endmenu
