@@ -5,6 +5,7 @@
 #include "driver/i2c_master.h"
 #include "esp_http_client.h"
 #include "esp_log.h"
+#include "esp_timer.h"
 #include "sdkconfig.h"
 
 #include "cJSON.h"
@@ -111,11 +112,17 @@ void send_metrics(bmp_measurement *bmp, sensirion_measurement *sensirion)
     cJSON_AddNumberToObject(metric_co2, "value", sensirion->co2);
     cJSON_AddStringToObject(metric_co2, "type", "IGAUGE");
 
+    cJSON *metric_uptime = cJSON_CreateObject();
+    cJSON_AddStringToObject(metric_co2, "name", "uptime");
+    cJSON_AddNumberToObject(metric_co2, "value", esp_timer_get_time() / 1000000);
+    cJSON_AddStringToObject(metric_co2, "type", "IGAUGE");
+
     cJSON *metrics = cJSON_AddArrayToObject(root, "metrics");
     cJSON_AddItemToArray(metrics, metric_temperature);
     cJSON_AddItemToArray(metrics, metric_pressure);
     cJSON_AddItemToArray(metrics, metric_humidity);
     cJSON_AddItemToArray(metrics, metric_co2);
+    cJSON_AddItemToArray(metrics, metric_uptime);
 
     char *post_data = cJSON_PrintUnformatted(root);
 
