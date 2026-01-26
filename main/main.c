@@ -113,9 +113,9 @@ void send_metrics(bmp_measurement *bmp, sensirion_measurement *sensirion)
     cJSON_AddStringToObject(metric_co2, "type", "IGAUGE");
 
     cJSON *metric_uptime = cJSON_CreateObject();
-    cJSON_AddStringToObject(metric_co2, "name", "uptime");
-    cJSON_AddNumberToObject(metric_co2, "value", esp_timer_get_time() / 1000000);
-    cJSON_AddStringToObject(metric_co2, "type", "IGAUGE");
+    cJSON_AddStringToObject(metric_uptime, "name", "uptime");
+    cJSON_AddNumberToObject(metric_uptime, "value", esp_timer_get_time() / 1000000);
+    cJSON_AddStringToObject(metric_uptime, "type", "IGAUGE");
 
     cJSON *metrics = cJSON_AddArrayToObject(root, "metrics");
     cJSON_AddItemToArray(metrics, metric_temperature);
