@@ -9,6 +9,7 @@
 #include "sdkconfig.h"
 
 #include "cJSON.h"
+#include "scd4x_i2c.h"
 
 #include "wifi.h"
 #include "bmp.h"
@@ -191,15 +192,14 @@ void app_main(void)
     {
         xCycleStartTime = xTaskGetTickCount();
         bmp_read_measurement(&bmp_measurement);
-        sensirion_set_ambient_pressure(bmp_measurement.pressure);
+        scd4x_set_ambient_pressure(bmp_measurement.pressure);
 
-        sensirion_measure_single_shot();
+        scd4x_measure_single_shot();
         int retries = 20;
-        int ready;
+        bool ready;
         do
         {
-            vTaskDelay(pdMS_TO_TICKS(1000));
-            ready = sensirion_get_data_ready_status();
+            scd4x_get_data_ready_status(&ready);
         } while (!ready && (retries-- > 0));
         if (ready)
         {

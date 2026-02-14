@@ -13,6 +13,8 @@ idf_component_register(SRCS
                               esp_timer
                               esp_wifi
                               nvs_flash
+
+                              scd4x-wrapper
                        INCLUDE_DIRS ".")
 
 if(NOT CONFIG_MONITORING_LABEL_LOCATION)
