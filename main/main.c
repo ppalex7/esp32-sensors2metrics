@@ -65,6 +65,9 @@ static void configure_i2c()
     ESP_ERROR_CHECK(i2c_new_master_bus(&i2c_bus_config, &tool_bus_handle));
 
     add_sensirion_device_to_i2c_bus();
+    ESP_ERROR_CHECK(scd4x_stop_periodic_measurement());
+    ESP_ERROR_CHECK(scd4x_start_low_power_periodic_measurement());
+
     add_bmp_device_to_i2c_bus();
 }
 
@@ -94,6 +97,7 @@ void send_metrics(bmp_measurement *bmp, sensirion_measurement *sensirion)
     {
         cJSON_AddBoolToObject(labels, "debug", cJSON_True);
     }
+    cJSON *metrics = cJSON_AddArrayToObject(root, "metrics");
 
     cJSON *metric_temperature = cJSON_CreateObject();
     cJSON_AddStringToObject(metric_temperature, "name", "temperature");
@@ -104,25 +108,28 @@ void send_metrics(bmp_measurement *bmp, sensirion_measurement *sensirion)
     cJSON_AddNumberToObject(metric_pressure, "value", bmp->pressure);
     cJSON_AddStringToObject(metric_pressure, "type", "IGAUGE");
 
-    cJSON *metric_humidity = cJSON_CreateObject();
-    cJSON_AddStringToObject(metric_humidity, "name", "relative_humidity");
-    cJSON_AddNumberToObject(metric_humidity, "value", sensirion->rh);
+    if (sensirion->ready)
+    {
+        cJSON *metric_humidity = cJSON_CreateObject();
+        cJSON_AddStringToObject(metric_humidity, "name", "relative_humidity");
+        cJSON_AddNumberToObject(metric_humidity, "value", sensirion->rh);
 
-    cJSON *metric_co2 = cJSON_CreateObject();
-    cJSON_AddStringToObject(metric_co2, "name", "co2_concentration");
-    cJSON_AddNumberToObject(metric_co2, "value", sensirion->co2);
-    cJSON_AddStringToObject(metric_co2, "type", "IGAUGE");
+        cJSON *metric_co2 = cJSON_CreateObject();
+        cJSON_AddStringToObject(metric_co2, "name", "co2_concentration");
+        cJSON_AddNumberToObject(metric_co2, "value", sensirion->co2);
+        cJSON_AddStringToObject(metric_co2, "type", "IGAUGE");
+
+        cJSON_AddItemToArray(metrics, metric_humidity);
+        cJSON_AddItemToArray(metrics, metric_co2);
+    }
 
     cJSON *metric_uptime = cJSON_CreateObject();
     cJSON_AddStringToObject(metric_uptime, "name", "uptime");
     cJSON_AddNumberToObject(metric_uptime, "value", esp_timer_get_time() / 1000000);
     cJSON_AddStringToObject(metric_uptime, "type", "IGAUGE");
 
-    cJSON *metrics = cJSON_AddArrayToObject(root, "metrics");
     cJSON_AddItemToArray(metrics, metric_temperature);
     cJSON_AddItemToArray(metrics, metric_pressure);
-    cJSON_AddItemToArray(metrics, metric_humidity);
-    cJSON_AddItemToArray(metrics, metric_co2);
     cJSON_AddItemToArray(metrics, metric_uptime);
 
     char *post_data = cJSON_PrintUnformatted(root);
@@ -194,22 +201,16 @@ void app_main(void)
         bmp_read_measurement(&bmp_measurement);
         scd4x_set_ambient_pressure(bmp_measurement.pressure);
 
-        scd4x_measure_single_shot();
-        int retries = 20;
-        bool ready;
-        do
-        {
-            scd4x_get_data_ready_status(&ready);
-        } while (!ready && (retries-- > 0));
-        if (ready)
+        scd4x_get_data_ready_status(&(sensirion_measurement.ready));
+        if (sensirion_measurement.ready)
         {
             sensirion_read_measurement(&sensirion_measurement);
-            send_metrics(&bmp_measurement, &sensirion_measurement);
         }
         else
         {
-            ESP_LOGW(TAG, "data from sensirion is not available");
+            ESP_LOGI(TAG, "data from sensirion is not available");
         }
+        send_metrics(&bmp_measurement, &sensirion_measurement);
         vTaskDelayUntil(&xCycleStartTime, pdMS_TO_TICKS(15000));
     }
 }

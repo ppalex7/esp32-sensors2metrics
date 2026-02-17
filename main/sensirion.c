@@ -4,6 +4,7 @@
 #include "driver/i2c_master.h"
 
 #include "scd4x_i2c.h"
+#include "sensirion_common.h"
 
 #include "sensirion.h"
 
