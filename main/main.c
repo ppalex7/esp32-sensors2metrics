@@ -69,6 +69,7 @@ static void configure_i2c()
     ESP_ERROR_CHECK(scd4x_start_low_power_periodic_measurement());
 
     add_bmp_device_to_i2c_bus();
+    ESP_ERROR_CHECK(bmp_enable_pressure());
 }
 
 #if CONFIG_DEBUG_HTTP_CLIENT
@@ -182,15 +183,6 @@ void app_main(void)
 #if CONFIG_DEBUG_HTTP_CLIENT
     esp_log_level_set("HTTP_CLIENT", ESP_LOG_VERBOSE);
 #endif
-
-    esp_err_t ret;
-    int retries = 20;
-    do
-    {
-        vTaskDelay(pdMS_TO_TICKS(20));
-        ESP_LOGI(TAG, "Enable pressure measurement, retries left %d", retries);
-        ret = bmp_enable_pressure();
-    } while (retries-- > 0 && ret != ESP_OK);
 
     bmp_measurement bmp_measurement;
     sensirion_measurement sensirion_measurement;
