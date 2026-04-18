@@ -14,6 +14,7 @@ idf_component_register(SRCS
                               esp_wifi
                               nvs_flash
 
+                              bmx-wrapper
                               scd4x-wrapper
                        INCLUDE_DIRS ".")
 

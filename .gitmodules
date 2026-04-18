@@ -1,3 +1,6 @@
 [submodule "components/scd4x-wrapper/vendor/embedded-i2c-scd4x"]
 	path = components/scd4x-wrapper/vendor/embedded-i2c-scd4x
 	url = https://github.com/Sensirion/embedded-i2c-scd4x.git
+[submodule "components/bme280-wrapper/vendor/BME280_SensorAPI"]
+	path = components/bmx-wrapper/vendor/BME280_SensorAPI
+	url = https://github.com/boschsensortec/BME280_SensorAPI.git
