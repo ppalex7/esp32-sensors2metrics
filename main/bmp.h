@@ -2,13 +2,8 @@
 
 #include "esp_err.h"
 
-typedef struct {
-    uint32_t pressure;   /* Pa */
-    double t;      /* 'C */
-} bmp_measurement;
+#include "metrics.h"
 
-
-void add_bmp_device_to_i2c_bus();
-esp_err_t bmp_enable_pressure();
-esp_err_t bmp_normal_mode_1hz();
-void bmp_read_measurement(bmp_measurement *measurement);
+void add_bmx_device_to_i2c_bus();
+esp_err_t bmx_configure_device();
+void bmx_read_measurement(SensorMetrics *measurement);

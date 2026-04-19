@@ -13,6 +13,7 @@
 
 #include "wifi.h"
 #include "bmp.h"
+#include "metrics.h"
 #include "sensirion.h"
 
 static gpio_num_t i2c_gpio_sda = CONFIG_I2C_MASTER_SDA;
@@ -22,32 +23,45 @@ static i2c_port_t i2c_port = I2C_NUM_0;
 static const char *TAG = "co2-monitoring";
 
 volatile int b_tmp_metric;
+static struct SensorMetrics pressure_metrics = {
+    .sensor_name = CONFIG_PRESSURE_SENSOR_NAME,
+    .valid.all_flags = 0,
+};
+static struct SensorMetrics co2_metrics = {
+    .sensor_name = "SCD40",
+    .valid.all_flags = 0,
+};
+
+SensorMetrics *all_metrics[] = {&pressure_metrics, &co2_metrics};
 
 void input_polling_task(void *pvParameter)
 {
     while (1)
     {
-        b_tmp_metric = !gpio_get_level(GPIO_NUM_10);
+        b_tmp_metric = !gpio_get_level(CONFIG_DEBUG_PIN);
+#ifdef CONFIG_IDF_TARGET_ESP32C3
         gpio_set_level(GPIO_NUM_8, !b_tmp_metric);
+#endif
         vTaskDelay(pdMS_TO_TICKS(1000));
     }
 }
 
 static void configure_gpio()
 {
+#ifdef CONFIG_IDF_TARGET_ESP32C3
     gpio_config_t led_conf = {
         .pin_bit_mask = (1ULL << GPIO_NUM_8),
         .mode = GPIO_MODE_OUTPUT,
     };
     gpio_config(&led_conf);
+#endif
 
     gpio_config_t input_conf = {
-        .pin_bit_mask = (1ULL << GPIO_NUM_10),
+        .pin_bit_mask = (1ULL << CONFIG_DEBUG_PIN),
         .mode = GPIO_MODE_INPUT,
         .pull_up_en = GPIO_PULLUP_ENABLE,
     };
     gpio_config(&input_conf);
-
     configASSERT(xTaskCreate(input_polling_task, "poll_input", 512, NULL, 5, NULL));
 }
 
@@ -68,8 +82,8 @@ static void configure_i2c()
     ESP_ERROR_CHECK(scd4x_stop_periodic_measurement());
     ESP_ERROR_CHECK(scd4x_start_low_power_periodic_measurement());
 
-    add_bmp_device_to_i2c_bus();
-    ESP_ERROR_CHECK(bmp_enable_pressure());
+    add_bmx_device_to_i2c_bus();
+    ESP_ERROR_CHECK(bmx_configure_device());
 }
 
 #if CONFIG_DEBUG_HTTP_CLIENT
@@ -83,7 +97,7 @@ esp_err_t _http_event_handler(esp_http_client_event_t *evt)
 }
 #endif
 
-void send_metrics(bmp_measurement *bmp, sensirion_measurement *sensirion)
+void send_metrics()
 {
     ESP_LOGD(TAG, "prepare JSON data for monitoring");
     cJSON *root = cJSON_CreateObject();
@@ -100,37 +114,51 @@ void send_metrics(bmp_measurement *bmp, sensirion_measurement *sensirion)
     }
     cJSON *metrics = cJSON_AddArrayToObject(root, "metrics");
 
-    cJSON *metric_temperature = cJSON_CreateObject();
-    cJSON_AddStringToObject(metric_temperature, "name", "temperature");
-    cJSON_AddNumberToObject(metric_temperature, "value", bmp->t);
-
-    cJSON *metric_pressure = cJSON_CreateObject();
-    cJSON_AddStringToObject(metric_pressure, "name", "air_pressure");
-    cJSON_AddNumberToObject(metric_pressure, "value", bmp->pressure);
-    cJSON_AddStringToObject(metric_pressure, "type", "IGAUGE");
-
-    if (sensirion->ready)
+    for (size_t i = 0; i < sizeof(all_metrics) / sizeof(all_metrics[0]); i++)
     {
-        cJSON *metric_humidity = cJSON_CreateObject();
-        cJSON_AddStringToObject(metric_humidity, "name", "relative_humidity");
-        cJSON_AddNumberToObject(metric_humidity, "value", sensirion->rh);
+        SensorMetrics *m = all_metrics[i];
+        cJSON *metric_labels = cJSON_CreateObject();
+        cJSON_AddStringToObject(metric_labels, "sensor", m->sensor_name);
 
-        cJSON *metric_co2 = cJSON_CreateObject();
-        cJSON_AddStringToObject(metric_co2, "name", "co2_concentration");
-        cJSON_AddNumberToObject(metric_co2, "value", sensirion->co2);
-        cJSON_AddStringToObject(metric_co2, "type", "IGAUGE");
-
-        cJSON_AddItemToArray(metrics, metric_humidity);
-        cJSON_AddItemToArray(metrics, metric_co2);
+        if (m->valid.has_temp)
+        {
+            cJSON *metric = cJSON_CreateObject();
+            cJSON_AddItemToObject(metric, "labels", cJSON_Duplicate(metric_labels, true));
+            cJSON_AddStringToObject(metric, "name", "temperature");
+            cJSON_AddNumberToObject(metric, "value", m->temperature);
+            cJSON_AddItemToArray(metrics, metric);
+        }
+        if (m->valid.has_pres)
+        {
+            cJSON *metric = cJSON_CreateObject();
+            cJSON_AddItemToObject(metric, "labels", cJSON_Duplicate(metric_labels, true));
+            cJSON_AddStringToObject(metric, "name", "air_pressure");
+            cJSON_AddNumberToObject(metric, "value", m->pressure);
+            cJSON_AddItemToArray(metrics, metric);
+        }
+        if (m->valid.has_hum)
+        {
+            cJSON *metric = cJSON_CreateObject();
+            cJSON_AddItemToObject(metric, "labels", cJSON_Duplicate(metric_labels, true));
+            cJSON_AddStringToObject(metric, "name", "relative_humidity");
+            cJSON_AddNumberToObject(metric, "value", m->humidity);
+            cJSON_AddItemToArray(metrics, metric);
+        }
+        if (m->valid.has_co2)
+        {
+            cJSON *metric = cJSON_CreateObject();
+            cJSON_AddItemToObject(metric, "labels", cJSON_Duplicate(metric_labels, true));
+            cJSON_AddStringToObject(metric, "name", "co2_concentration");
+            cJSON_AddNumberToObject(metric, "value", m->co2);
+            cJSON_AddItemToArray(metrics, metric);
+        }
+        cJSON_Delete(metric_labels);
     }
 
     cJSON *metric_uptime = cJSON_CreateObject();
     cJSON_AddStringToObject(metric_uptime, "name", "uptime");
     cJSON_AddNumberToObject(metric_uptime, "value", esp_timer_get_time() / 1000000);
     cJSON_AddStringToObject(metric_uptime, "type", "IGAUGE");
-
-    cJSON_AddItemToArray(metrics, metric_temperature);
-    cJSON_AddItemToArray(metrics, metric_pressure);
     cJSON_AddItemToArray(metrics, metric_uptime);
 
     char *post_data = cJSON_PrintUnformatted(root);
@@ -184,25 +212,27 @@ void app_main(void)
     esp_log_level_set("HTTP_CLIENT", ESP_LOG_VERBOSE);
 #endif
 
-    bmp_measurement bmp_measurement;
-    sensirion_measurement sensirion_measurement;
+    bool co2_ready = false;
     TickType_t xCycleStartTime;
     while (1)
     {
         xCycleStartTime = xTaskGetTickCount();
-        bmp_read_measurement(&bmp_measurement);
-        scd4x_set_ambient_pressure(bmp_measurement.pressure);
-
-        scd4x_get_data_ready_status(&(sensirion_measurement.ready));
-        if (sensirion_measurement.ready)
+        bmx_read_measurement(&pressure_metrics);
+        if (pressure_metrics.valid.has_pres)
         {
-            sensirion_read_measurement(&sensirion_measurement);
+            scd4x_set_ambient_pressure((uint32_t)pressure_metrics.pressure);
+        }
+
+        scd4x_get_data_ready_status(&co2_ready);
+        if (co2_ready)
+        {
+            sensirion_read_measurement(&co2_metrics);
         }
         else
         {
             ESP_LOGI(TAG, "data from sensirion is not available");
         }
-        send_metrics(&bmp_measurement, &sensirion_measurement);
-        vTaskDelayUntil(&xCycleStartTime, pdMS_TO_TICKS(15000));
+        send_metrics();
+        vTaskDelayUntil(&xCycleStartTime, pdMS_TO_TICKS(10000));
     }
 }

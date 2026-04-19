@@ -1,3 +1,5 @@
+#include "sensirion.h"
+
 #include <stdint.h>
 
 #include "esp_log.h"
@@ -5,8 +7,6 @@
 
 #include "scd4x_i2c.h"
 #include "sensirion_common.h"
-
-#include "sensirion.h"
 
 static const char *TAG = "sensirion";
 
@@ -31,21 +31,24 @@ void add_sensirion_device_to_i2c_bus()
         abort();
     }
 }
-
-void sensirion_read_measurement(sensirion_measurement *measurement)
+void sensirion_read_measurement(SensorMetrics *measurement)
 {
     uint16_t raw_co2;
     uint16_t raw_temp;
     uint16_t raw_rh;
 
+    measurement->valid.all_flags = 0;
     int16_t ret = scd4x_read_measurement_raw(&raw_co2, &raw_temp, &raw_rh);
     if (ret == 0)
     {
-        int32_t temp = -45 + 175 * raw_temp / ((1 << 16) - 1);
-        measurement->co2 = raw_co2;
-        measurement->t = (int16_t)temp;
-        measurement->rh = 100 * raw_rh / ((1 << 16) - 1);
-        ESP_LOGI(TAG, "read_measurement values: CO2=%04d ppm, T=%02d, RH=%02d", measurement->co2, temp, measurement->rh);
+        double temp = ((double)raw_temp) * 175 / 65535 - 45;
+        measurement->co2 = (double)raw_co2;
+        measurement->valid.has_co2 = 1;
+        measurement->temperature = temp;
+        measurement->valid.has_temp = 1;
+        measurement->humidity = ((double)raw_rh) * 100 / 65535;
+        measurement->valid.has_hum = 1;
+        ESP_LOGI(TAG, "read_measurement values: CO2=%04.0f ppm, T=%02.2f, RH=%02.1f", measurement->co2, temp, measurement->humidity);
     }
     else
     {
