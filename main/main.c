@@ -9,6 +9,7 @@
 #include "sdkconfig.h"
 
 #include "cJSON.h"
+#include "led_strip.h"
 #include "scd4x_i2c.h"
 
 #include "wifi.h"
@@ -33,6 +34,55 @@ static struct SensorMetrics co2_metrics = {
 };
 
 SensorMetrics *all_metrics[] = {&pressure_metrics, &co2_metrics};
+
+#ifdef CONFIG_IDF_TARGET_ESP32C6
+static led_strip_handle_t led_strip;
+void update_led_task(void *pvParameter)
+{
+    uint8_t r = 16, g = 24, b = 39;
+    led_strip_set_pixel(led_strip, 0, r, g, b);
+    led_strip_refresh(led_strip);
+    while (1)
+    {
+        if (co2_metrics.valid.has_co2)
+        {
+            b = 0;
+            if (co2_metrics.co2 <= 600)
+            {
+                r = 0;
+                g = 255;
+            }
+            else if (co2_metrics.co2 <= 800)
+            {
+                // Переход Зеленый -> Желтый (растет Красный)
+                // (co2 - 600) / 200 даст нам коэффициент от 0 до 1
+                r = (uint8_t)((co2_metrics.co2 - 600) / 200.0 * 255);
+                g = 255;
+            }
+            else if (co2_metrics.co2 <= 1200)
+            {
+                // Переход Желтый -> Красный (падает Зеленый)
+                r = 255;
+                g = (uint8_t)(255 - ((co2_metrics.co2 - 800) / 400.0 * 255));
+            }
+            else
+            {
+                r = 255;
+                g = 0;
+            }
+        }
+        if (b_tmp_metric)
+        {
+            led_strip_set_pixel(led_strip, 0, 0, 0, 60);
+            led_strip_refresh(led_strip);
+            vTaskDelay(pdMS_TO_TICKS(200));
+        }
+        led_strip_set_pixel(led_strip, 0, r >> 3, g >> 3, b >> 3);
+        led_strip_refresh(led_strip);
+        vTaskDelay(pdMS_TO_TICKS(10000));
+    }
+}
+#endif
 
 void input_polling_task(void *pvParameter)
 {
@@ -63,6 +113,23 @@ static void configure_gpio()
     };
     gpio_config(&input_conf);
     configASSERT(xTaskCreate(input_polling_task, "poll_input", 512, NULL, 5, NULL));
+
+#ifdef CONFIG_IDF_TARGET_ESP32C6
+    led_strip_config_t strip_config = {
+        .strip_gpio_num = GPIO_NUM_8, // GPIO встроенного светодиода на C6
+        .max_leds = 1,
+        .color_component_format = LED_STRIP_COLOR_COMPONENT_FMT_GRB,
+        .led_model = LED_MODEL_WS2812,
+        .flags.invert_out = false,
+    };
+    led_strip_rmt_config_t rmt_config = {
+        .clk_src = RMT_CLK_SRC_DEFAULT,
+        .resolution_hz = 10 * 1000 * 1000,
+        .flags.with_dma = false,
+    };
+    ESP_ERROR_CHECK(led_strip_new_rmt_device(&strip_config, &rmt_config, &led_strip));
+    configASSERT(xTaskCreate(update_led_task, "indicate_co2", 1024, NULL, 5, NULL));
+#endif
 }
 
 static void configure_i2c()
