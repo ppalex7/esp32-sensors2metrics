@@ -23,6 +23,8 @@ static struct bme280_dev bmx_sensor;
 #define BMX_INTF BMP5_I2C_INTF
 #define BMX_INIT bmp5_init
 #define SENSOR_SET 1
+static struct bmp5_dev bmx_sensor;
+static struct bmp5_osr_odr_press_config osr_odr_cfg = {0};
 #endif
 
 static const char *TAG = "BMx";
@@ -68,43 +70,27 @@ esp_err_t bmx_configure_device()
         return ret;
     }
 
-#ifdef CONFIG_SENOR_BMP580
-    ESP_LOGD(TAG, "set press_en in OSR_CONFIG");
-
-    uint8_t command[] = {0x36, (1u << 6)};
-    ret = i2c_master_transmit(dev_handle, command, sizeof(command), CONFIG_I2C_TIMEOUT_VALUE_MS);
-
-    if (ret == ESP_OK)
+#ifdef CONFIG_SENSOR_BMP580
+    ret = bmp5_soft_reset(&bmx_sensor);
+    ESP_LOGD(TAG, "bmp5_soft_reset returned %d", ret);
+    if (ret != BMP5_OK)
     {
-        ESP_LOGD(TAG, "OSR_CONFIG set");
-    }
-    else if (ret == ESP_ERR_TIMEOUT)
-    {
-        ESP_LOGW(TAG, "Bus is busy");
-    }
-    else
-    {
-        ESP_LOGW(TAG, "OSR_CONFIG set failed: %d", ret);
+        return ret;
     }
 
-    ESP_LOGD(TAG, "set normal mode and ODR=1Hz in ODR_CONFIG");
+    osr_odr_cfg.osr_t = BMP5_OVERSAMPLING_1X;
+    osr_odr_cfg.osr_p = BMP5_OVERSAMPLING_1X;
+    osr_odr_cfg.press_en = BMP5_ENABLE;
+    osr_odr_cfg.odr = BMP5_ODR_01_HZ;
+    ret = bmp5_set_osr_odr_press_config(&osr_odr_cfg, &bmx_sensor);
+    ESP_LOGD(TAG, "bmp5_set_osr_odr_press_config result %d", ret);
+    if (ret != BMP5_OK)
+    {
+        return ret;
+    }
 
-    uint8_t command[] = {0x37, (0x1cu << 2) | 0b01};
-    ret = i2c_master_transmit(dev_handle, command, sizeof(command), CONFIG_I2C_TIMEOUT_VALUE_MS);
-
-    if (ret == ESP_OK)
-    {
-        ESP_LOGD(TAG, "ODR_CONFIG set");
-    }
-    else if (ret == ESP_ERR_TIMEOUT)
-    {
-        ESP_LOGW(TAG, "Bus is busy");
-    }
-    else
-    {
-        ESP_LOGW(TAG, "ODR_CONFIG set failed: %d", ret);
-    }
-    return ret;
+    ret = bmp5_set_power_mode(BMP5_POWERMODE_NORMAL, &bmx_sensor);
+    ESP_LOGD(TAG, "bmp5_set_power_mode result %d", ret);
 #endif
 #ifdef CONFIG_SENSOR_BME280
     struct bme280_settings settings;
@@ -137,42 +123,20 @@ void bmx_read_measurement(SensorMetrics *measurement)
 {
     measurement->valid.all_flags = 0;
 #ifdef CONFIG_SENSOR_BMP580
-    ESP_LOGD(TAG, "set single measurement mode in ODR_CONFIG");
-    uint8_t command[] = {0x37, (0x1cu << 2) | 0b10};
-    esp_err_t ret = i2c_master_transmit(dev_handle, command, sizeof(command), CONFIG_I2C_TIMEOUT_VALUE_MS);
-    if (ret == ESP_OK)
+    struct bmp5_sensor_data data = {0};
+    ESP_LOGD(TAG, "call bmp5_get_sensor_data");
+    int result = bmp5_get_sensor_data(&data, &osr_odr_cfg, &bmx_sensor);
+    if (result == BMP5_OK)
     {
-        ESP_LOGD(TAG, "ODR_CONFIG set");
-    }
-    else if (ret == ESP_ERR_TIMEOUT)
-    {
-        ESP_LOGW(TAG, "Bus is busy");
-        return;
-    }
-    else
-    {
-        ESP_LOGW(TAG, "ODR_CONFIG set failed: %d", ret);
-        return;
-    }
-
-    ESP_LOGD(TAG, "read measurements from BMP");
-    uint8_t read_addr[] = {0x1D};
-    uint8_t recv[6];
-    ret = i2c_master_transmit_receive(dev_handle, read_addr, sizeof(read_addr), recv, sizeof(recv), CONFIG_I2C_TIMEOUT_VALUE_MS);
-    if (ret == ESP_OK)
-    {
-        ESP_LOGD(TAG, "TEMP_DATA and PRESS_DATA read");
-        measurement->pressure = ((recv[5] << 16) | (recv[4] << 8) | recv[3]) >> 6;
-        measurement->t = ((double)((recv[2] << 16) | (recv[1] << 8) | recv[0])) / (1u << 16);
-        ESP_LOGI(TAG, "temperature=%.1f, pressure=%06d", measurement->t, measurement->pressure);
-    }
-    else if (ret == ESP_ERR_TIMEOUT)
-    {
-        ESP_LOGW(TAG, "Bus is busy");
+        measurement->pressure = data.pressure;
+        measurement->valid.has_pres = 1;
+        measurement->temperature = data.temperature;
+        measurement->valid.has_temp = 1;
+        ESP_LOGI(TAG, "temperature=%.2f, pressure=%06.1f", measurement->temperature, measurement->pressure);
     }
     else
     {
-        ESP_LOGW(TAG, "read measurements failed: %d", ret);
+        ESP_LOGW(TAG, "bmp5_get_sensor_data failed: %d", result);
     }
 #endif
 #ifdef CONFIG_SENSOR_BME280
