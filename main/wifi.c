@@ -7,6 +7,7 @@
 #include "esp_wifi.h"
 #include "nvs_flash.h"
 
+#include "credentials.h"
 #include "wifi.h"
 #include "watchdog.h"
 
@@ -92,8 +93,8 @@ void wifi_init_sta(void)
 
     wifi_config_t wifi_config = {
         .sta = {
-            .ssid = CONFIG_WIFI_SSID,
-            .password = CONFIG_WIFI_PASSWORD,
+            .ssid = WIFI_SSID,
+            .password = WIFI_PASSWORD,
             .threshold.authmode = WIFI_AUTH_WPA2_WPA3_PSK,
             .sae_pwe_h2e = WPA3_SAE_PWE_HUNT_AND_PECK,
             .sae_h2e_identifier = "",
@@ -111,5 +112,5 @@ void wifi_init_sta(void)
         ESP_LOGW(TAG, "No IP after %d ms, restarting", IP_WAIT_TIMEOUT_MS);
         restart_with_uptime();
     }
-    ESP_LOGI(TAG, "connected to ap SSID:%s", CONFIG_WIFI_SSID);
+    ESP_LOGI(TAG, "connected to ap SSID:%s", WIFI_SSID);
 }
