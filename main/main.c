@@ -12,6 +12,7 @@
 #include "led_strip.h"
 #include "scd4x_i2c.h"
 
+#include "credentials.h"
 #include "wifi.h"
 #include "bmp.h"
 #include "metrics.h"
@@ -246,7 +247,7 @@ void send_metrics()
 
     // Установка заголовков
     esp_http_client_set_header(client, "Content-Type", "application/json");
-    esp_http_client_set_header(client, "Authorization", ("Bearer " CONFIG_MONITORING_TOKEN));
+    esp_http_client_set_header(client, "Authorization", "Bearer " MONITORING_TOKEN);
 
     // Установка тела запроса
     esp_http_client_set_post_field(client, post_data, strlen(post_data));

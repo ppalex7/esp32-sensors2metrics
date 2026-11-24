@@ -9,9 +9,6 @@ menu "Yandex.Monitoring configuration"
         config MONITORING_FOLDER
         string "Yandex Cloud Folder id"
         
-        config MONITORING_TOKEN
-        string "Token for Yandex.Monitoring"
-
         config MONITORING_LABEL_LOCATION
         string "Value for label 'location'"
         
