@@ -8,17 +8,15 @@
 #include "nvs_flash.h"
 
 #include "wifi.h"
+#include "watchdog.h"
 
 static const char *TAG = "my_wifi";
 
 /* FreeRTOS event group to signal when we are connected*/
 static EventGroupHandle_t s_wifi_event_group;
 
-/* The event group allows multiple bits for each event, but we only care about two events:
- * - we are connected to the AP with an IP
- * - we failed to connect after the maximum amount of retries */
 #define WIFI_CONNECTED_BIT BIT0
-#define WIFI_FAIL_BIT      BIT1
+#define IP_WAIT_TIMEOUT_MS 30000
 
 static int s_retry_num = 0;
 
@@ -51,9 +49,8 @@ static void event_handler(void *arg, esp_event_base_t event_base, int32_t event_
         }
         else
         {
-            xEventGroupSetBits(s_wifi_event_group, WIFI_FAIL_BIT);
             ESP_LOGW(TAG, "retries exceeded, restart");
-            esp_restart();
+            restart_with_uptime();
         }
         ESP_LOGI(TAG, "connect to the AP fail");
     }
@@ -108,21 +105,11 @@ void wifi_init_sta(void)
 
     ESP_LOGI(TAG, "wifi_init_sta finished.");
 
-    /* Waiting until either the connection is established (WIFI_CONNECTED_BIT) or connection failed for the maximum
-     * number of re-tries (WIFI_FAIL_BIT). The bits are set by event_handler() (see above) */
-    EventBits_t bits = xEventGroupWaitBits(s_wifi_event_group,
-                                           WIFI_CONNECTED_BIT | WIFI_FAIL_BIT,
-                                           pdFALSE,
-                                           pdFALSE,
-                                           portMAX_DELAY);
-
-    /* xEventGroupWaitBits() returns the bits before the call returned, hence we can test which event actually
-     * happened. */
-    if (bits & WIFI_CONNECTED_BIT) {
-        ESP_LOGI(TAG, "connected to ap SSID:%s password:%s", CONFIG_WIFI_SSID, CONFIG_WIFI_PASSWORD);
-    } else if (bits & WIFI_FAIL_BIT) {
-        ESP_LOGI(TAG, "Failed to connect to SSID:%s, password:%s", CONFIG_WIFI_SSID, CONFIG_WIFI_PASSWORD);
-    } else {
-        ESP_LOGE(TAG, "UNEXPECTED EVENT");
+    EventBits_t bits = xEventGroupWaitBits(s_wifi_event_group, WIFI_CONNECTED_BIT,
+                                           pdFALSE, pdFALSE, pdMS_TO_TICKS(IP_WAIT_TIMEOUT_MS));
+    if (!(bits & WIFI_CONNECTED_BIT)) {
+        ESP_LOGW(TAG, "No IP after %d ms, restarting", IP_WAIT_TIMEOUT_MS);
+        restart_with_uptime();
     }
+    ESP_LOGI(TAG, "connected to ap SSID:%s", CONFIG_WIFI_SSID);
 }

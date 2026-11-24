@@ -5,7 +5,7 @@
 #include "driver/i2c_master.h"
 #include "esp_http_client.h"
 #include "esp_log.h"
-#include "esp_timer.h"
+#include "watchdog.h"
 #include "sdkconfig.h"
 
 #include "cJSON.h"
@@ -224,7 +224,7 @@ void send_metrics()
 
     cJSON *metric_uptime = cJSON_CreateObject();
     cJSON_AddStringToObject(metric_uptime, "name", "uptime");
-    cJSON_AddNumberToObject(metric_uptime, "value", esp_timer_get_time() / 1000000);
+    cJSON_AddNumberToObject(metric_uptime, "value", uptime_us() / 1000000);
     cJSON_AddStringToObject(metric_uptime, "type", "IGAUGE");
     cJSON_AddItemToArray(metrics, metric_uptime);
 
@@ -233,6 +233,7 @@ void send_metrics()
     // 3. Настройка HTTP клиента
     esp_http_client_config_t config = {
         .method = HTTP_METHOD_POST,
+        .timeout_ms = 5000,
         .transport_type = HTTP_TRANSPORT_OVER_SSL,
         .host = "monitoring.api.cloud.yandex.net",
         .path = "/monitoring/v2/data/write",
@@ -269,6 +270,7 @@ void send_metrics()
 
 void app_main(void)
 {
+    watchdog_start();
     wifi_init_nvs();
     wifi_init_sta();
 
@@ -300,6 +302,7 @@ void app_main(void)
             ESP_LOGI(TAG, "data from sensirion is not available");
         }
         send_metrics();
+        watchdog_feed();
         vTaskDelayUntil(&xCycleStartTime, pdMS_TO_TICKS(10000));
     }
 }
