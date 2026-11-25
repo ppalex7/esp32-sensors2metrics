@@ -48,27 +48,26 @@ void update_led_task(void *pvParameter)
     led_strip_refresh(led_strip);
     while (1)
     {
-        SensorMetrics co2 = device_status_get().co2;
-        if (co2.valid.has_co2)
+        if (co2_metrics.valid.has_co2)
         {
             b = 0;
-            if (co2.co2 <= 600)
+            if (co2_metrics.co2 <= 600)
             {
                 r = 0;
                 g = 255;
             }
-            else if (co2.co2 <= 800)
+            else if (co2_metrics.co2 <= 800)
             {
                 // Переход Зеленый -> Желтый (растет Красный)
                 // (co2 - 600) / 200 даст нам коэффициент от 0 до 1
-                r = (uint8_t)((co2.co2 - 600) / 200.0 * 255);
+                r = (uint8_t)((co2_metrics.co2 - 600) / 200.0 * 255);
                 g = 255;
             }
-            else if (co2.co2 <= 1200)
+            else if (co2_metrics.co2 <= 1200)
             {
                 // Переход Желтый -> Красный (падает Зеленый)
                 r = 255;
-                g = (uint8_t)(255 - ((co2.co2 - 800) / 400.0 * 255));
+                g = (uint8_t)(255 - ((co2_metrics.co2 - 800) / 400.0 * 255));
             }
             else
             {
