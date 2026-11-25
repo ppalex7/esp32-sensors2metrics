@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ESP32 sensors</title>
+  <style>
+    body{font:16px system-ui,sans-serif;max-width:44rem;margin:2rem auto;padding:0 1rem;color:#222}
+    h1{font-size:1.5rem}h2{font-size:1.1rem;margin:1.5rem 0 .5rem}
+    label{display:block;margin:.75rem 0}input{display:block;box-sizing:border-box;width:100%;padding:.5rem;font:inherit}
+    button{font:inherit;padding:.5rem 1rem}table{width:100%;border-collapse:collapse}
+    th,td{text-align:left;padding:.4rem;border-bottom:1px solid #ddd}.muted{color:#555}
+    .ok{color:#17692a}.warn{color:#9a4300}
+  </style>
+</head>
+<body>
+  <h1>ESP32 sensors</h1>
+  <p id="connection" class="muted">Loading…</p>
+  <h2>Current measurements</h2>
+  <table><thead><tr><th>Sensor</th><th>Measurement</th><th>Value</th><th>Ready</th></tr></thead><tbody id="readings"></tbody></table>
+  <p class="muted" id="details"></p>
+  <h2>Monitoring labels</h2>
+  <p id="sending"></p>
+  <p class="muted" id="saved-labels"></p>
+  <form id="settings">
+    <label>location<input id="location" name="location" maxlength="128" disabled></label>
+    <label>room<input id="room" name="room" maxlength="128" disabled></label>
+    <button id="save" type="submit" disabled>Save</button>
+    <span id="result" role="status"></span>
+  </form>
+  <p class="muted">Both labels must be set to send metrics. Empty labels disable sending without stopping measurements. Saved labels survive a restart.</p>
+  <script>
+    const el = id => document.getElementById(id);
+    const form = el('settings'), locationInput = el('location'), roomInput = el('room');
+    let initialized = false, saving = false;
+    const measurements = {temperature:['Temperature','°C',2],air_pressure:['Air pressure','Pa',1],relative_humidity:['Humidity','%',1],co2_concentration:['CO₂','ppm',0]};
+    function showLabels(data, updateInputs) {
+      el('sending').textContent = data.labels_ready ? 'Saved labels: sending enabled' : 'Saved labels: sending disabled (labels missing)';
+      el('sending').className = data.labels_ready ? 'ok' : 'warn';
+      el('saved-labels').textContent = 'Saved location: ' + (data.labels.location || '—') + ' · Saved room: ' + (data.labels.room || '—');
+      if (updateInputs) {
+        locationInput.value = data.labels.location;
+        roomInput.value = data.labels.room;
+      }
+    }
+    function showReadings(data) {
+      const rows = [];
+      for (const [sensor, values] of Object.entries(data.sensors)) {
+        for (const [name, reading] of Object.entries(values)) {
+          const [title, unit, decimals] = measurements[name];
+          const value = reading.ready && reading.value !== null ? reading.value.toFixed(decimals) + ' ' + unit : '—';
+          const row = document.createElement('tr');
+          for (const text of [sensor, title, value, String(reading.ready)]) {
+            const cell = document.createElement('td');
+            cell.textContent = text;
+            row.appendChild(cell);
+          }
+          rows.push(row);
+        }
+      }
+      el('readings').replaceChildren(...rows);
+      el('details').textContent = 'SCD40 new measurement in last cycle: ' + data.scd40_data_ready + ' · Uptime: ' + data.uptime + ' s';
+    }
+    async function refresh() {
+      try {
+        const response = await fetch('/api/status', {cache:'no-store'});
+        if (!response.ok) throw new Error('HTTP ' + response.status);
+        const data = await response.json();
+        showReadings(data);
+        if (!saving) showLabels(data, !initialized);
+        if (!initialized) {
+          initialized = true;
+          locationInput.disabled = roomInput.disabled = el('save').disabled = false;
+        }
+        el('connection').textContent = 'Updated: ' + new Date().toLocaleTimeString();
+      } catch (error) {
+        el('connection').textContent = 'Cannot refresh measurements: ' + error.message;
+      } finally {
+        setTimeout(refresh, 5000);
+      }
+    }
+    form.addEventListener('submit', async event => {
+      event.preventDefault();
+      const labels = {location:locationInput.value, room:roomInput.value};
+      if (Object.values(labels).some(value => new TextEncoder().encode(value.trim()).length > 128)) {
+        el('result').textContent = 'Maximum label length is 128 UTF-8 bytes.';
+        return;
+      }
+      saving = true;
+      locationInput.disabled = roomInput.disabled = el('save').disabled = true;
+      el('result').textContent = 'Saving…';
+      try {
+        const response = await fetch('/api/labels', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(labels)});
+        if (!response.ok) throw new Error(await response.text());
+        showLabels(await response.json(), true);
+        el('result').textContent = 'Saved.';
+      } catch (error) {
+        el('result').textContent = 'Save failed: ' + error.message;
+      } finally {
+        saving = false;
+        locationInput.disabled = roomInput.disabled = el('save').disabled = false;
+      }
+    });
+    refresh();
+  </script>
+</body>
+</html>

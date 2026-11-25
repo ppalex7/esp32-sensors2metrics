@@ -9,11 +9,6 @@ menu "Yandex.Monitoring configuration"
         config MONITORING_FOLDER
         string "Yandex Cloud Folder id"
         
-        config MONITORING_LABEL_LOCATION
-        string "Value for label 'location'"
-        
-        config MONITORING_LABEL_ROOM
-        string "Value for label 'room'"
 endmenu
 
 menu "Sensors Configuration"

@@ -4,7 +4,7 @@
 
 typedef struct SensorMetrics
 {
-    const char *const sensor_name;
+    const char *sensor_name;
 
     double temperature;
     double pressure;
