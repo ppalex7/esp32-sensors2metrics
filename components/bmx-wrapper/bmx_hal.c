@@ -7,6 +7,7 @@
 
 #include "driver/i2c_master.h"
 #include "esp_log.h"
+#include "esp_rom_sys.h"
 
 static const char *TAG = "bmx_hal";
 
@@ -37,5 +38,14 @@ int8_t bmx_i2c_write(uint8_t reg_addr, const uint8_t *reg_data, uint32_t len, vo
 void bmx_delay_us(uint32_t period_us, void *intf_ptr)
 {
     ESP_LOGV(TAG, "Delay for %d uSeconds", period_us);
-    vTaskDelay(((period_us / 1000) + portTICK_PERIOD_MS - 1) / portTICK_PERIOD_MS);
+    // Keep sub-tick delays accurate and give the sensor time to settle.
+    if (period_us <= 10000)
+    {
+        esp_rom_delay_us(period_us + 1000);
+    }
+    else
+    {
+        // Round up and add a tick to guarantee the minimum delay.
+        vTaskDelay(pdMS_TO_TICKS(period_us / 1000) + 2);
+    }
 }
