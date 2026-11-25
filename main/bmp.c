@@ -12,7 +12,6 @@
 #include "bme280.h"
 #define BMX_I2C_ADDRESS BME280_I2C_ADDR_PRIM
 #define BMX_INTF BME280_I2C_INTF
-#define BMX_INIT bme280_init
 #define SENSOR_SET 1
 static struct bme280_dev bmx_sensor;
 #endif
@@ -21,7 +20,6 @@ static struct bme280_dev bmx_sensor;
 #include "bmp5.h"
 #define BMX_I2C_ADDRESS BMP5_I2C_ADDR_SEC
 #define BMX_INTF BMP5_I2C_INTF
-#define BMX_INIT bmp5_init
 #define SENSOR_SET 1
 static struct bmp5_dev bmx_sensor;
 static struct bmp5_osr_odr_press_config osr_odr_cfg = {0};
@@ -61,21 +59,41 @@ void add_bmx_device_to_i2c_bus()
     bmx_sensor.intf_ptr = dev_handle;
 }
 
+static esp_err_t log_configuration_error(const char *function, int8_t ret)
+{
+    ESP_LOGW(TAG, "%s failed: %d", function, (int)ret);
+#ifdef CONFIG_SENSOR_BMP580
+    uint8_t status = 0;
+    int8_t status_ret = bmp5_get_regs(BMP5_REG_STATUS, &status, 1, &bmx_sensor);
+    if (status_ret == BMP5_OK)
+    {
+        ESP_LOGW(TAG, "BMP580 STATUS (0x28): 0x%02x", (unsigned int)status);
+    }
+    else
+    {
+        ESP_LOGW(TAG, "BMP580 STATUS read failed: %d", (int)status_ret);
+    }
+#endif
+    return ret;
+}
+
 esp_err_t bmx_configure_device()
 {
-    int8_t ret = BMX_INIT(&bmx_sensor);
-    ESP_LOGD(TAG, "init function returned %d", ret);
-    if (ret != 0)
-    {
-        return ret;
-    }
+    int8_t ret;
 
 #ifdef CONFIG_SENSOR_BMP580
+    // Reset before init, which checks NVM readiness.
     ret = bmp5_soft_reset(&bmx_sensor);
-    ESP_LOGD(TAG, "bmp5_soft_reset returned %d", ret);
+    vTaskDelay(pdMS_TO_TICKS(20) + 1);
     if (ret != BMP5_OK)
     {
-        return ret;
+        return log_configuration_error("bmp5_soft_reset", ret);
+    }
+
+    ret = bmp5_init(&bmx_sensor);
+    if (ret != BMP5_OK)
+    {
+        return log_configuration_error("bmp5_init", ret);
     }
 
     osr_odr_cfg.osr_t = BMP5_OVERSAMPLING_1X;
@@ -83,22 +101,29 @@ esp_err_t bmx_configure_device()
     osr_odr_cfg.press_en = BMP5_ENABLE;
     osr_odr_cfg.odr = BMP5_ODR_01_HZ;
     ret = bmp5_set_osr_odr_press_config(&osr_odr_cfg, &bmx_sensor);
-    ESP_LOGD(TAG, "bmp5_set_osr_odr_press_config result %d", ret);
     if (ret != BMP5_OK)
     {
-        return ret;
+        return log_configuration_error("bmp5_set_osr_odr_press_config", ret);
     }
 
     ret = bmp5_set_power_mode(BMP5_POWERMODE_NORMAL, &bmx_sensor);
-    ESP_LOGD(TAG, "bmp5_set_power_mode result %d", ret);
+    if (ret != BMP5_OK)
+    {
+        return log_configuration_error("bmp5_set_power_mode", ret);
+    }
 #endif
 #ifdef CONFIG_SENSOR_BME280
-    struct bme280_settings settings;
-    ret = bme280_get_sensor_settings(&settings, &bmx_sensor);
-    ESP_LOGD(TAG, "bme280_get_sensor_settings result %d", ret);
+    ret = bme280_init(&bmx_sensor);
     if (ret != BME280_OK)
     {
-        return ret;
+        return log_configuration_error("bme280_init", ret);
+    }
+
+    struct bme280_settings settings;
+    ret = bme280_get_sensor_settings(&settings, &bmx_sensor);
+    if (ret != BME280_OK)
+    {
+        return log_configuration_error("bme280_get_sensor_settings", ret);
     }
     settings.osr_h = BME280_OVERSAMPLING_1X;
     settings.osr_p = BME280_OVERSAMPLING_1X;
@@ -107,16 +132,18 @@ esp_err_t bmx_configure_device()
     settings.standby_time = BME280_STANDBY_TIME_1000_MS;
     uint8_t settings_sel = BME280_SEL_ALL_SETTINGS;
     ret = bme280_set_sensor_settings(settings_sel, &settings, &bmx_sensor);
-    ESP_LOGD(TAG, "bme280_set_sensor_settings result %d", ret);
     if (ret != BME280_OK)
     {
-        return ret;
+        return log_configuration_error("bme280_set_sensor_settings", ret);
     }
     ret = bme280_set_sensor_mode(BME280_POWERMODE_NORMAL, &bmx_sensor);
-    ESP_LOGD(TAG, "bme280_set_sensor_mode result %d", ret);
+    if (ret != BME280_OK)
+    {
+        return log_configuration_error("bme280_set_sensor_mode", ret);
+    }
 #endif
     vTaskDelay(pdMS_TO_TICKS(100));
-    return ret;
+    return ESP_OK;
 }
 
 void bmx_read_measurement(SensorMetrics *measurement)
