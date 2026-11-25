@@ -151,7 +151,28 @@ static void configure_i2c()
     ESP_ERROR_CHECK(scd4x_start_low_power_periodic_measurement());
 
     add_bmx_device_to_i2c_bus();
-    ESP_ERROR_CHECK(bmx_configure_device());
+
+    const int max_attempts = 5;
+    esp_err_t err = ESP_FAIL;
+
+    // Allow the sensor to settle before the first configuration attempt.
+    vTaskDelay(pdMS_TO_TICKS(100) + 1);
+    for (int attempt = 1; attempt <= max_attempts; ++attempt)
+    {
+        err = bmx_configure_device();
+        if (err == ESP_OK)
+        {
+            break;
+        }
+
+        ESP_LOGW(TAG, "BMx configuration attempt %d/%d failed: %d",
+                 attempt, max_attempts, (int)err);
+        if (attempt < max_attempts)
+        {
+            vTaskDelay(pdMS_TO_TICKS(100) + 1);
+        }
+    }
+    ESP_ERROR_CHECK(err);
 }
 
 #if CONFIG_DEBUG_HTTP_CLIENT
