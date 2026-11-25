@@ -3,6 +3,7 @@ idf_component_register(SRCS
                               "bmp.c"
                               "sensirion.c"
                               "wifi.c"
+                              "watchdog.c"
                            
                        PRIV_REQUIRES
                               cjson

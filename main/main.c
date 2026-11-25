@@ -5,13 +5,14 @@
 #include "driver/i2c_master.h"
 #include "esp_http_client.h"
 #include "esp_log.h"
-#include "esp_timer.h"
+#include "watchdog.h"
 #include "sdkconfig.h"
 
 #include "cJSON.h"
 #include "led_strip.h"
 #include "scd4x_i2c.h"
 
+#include "credentials.h"
 #include "wifi.h"
 #include "bmp.h"
 #include "metrics.h"
@@ -150,7 +151,28 @@ static void configure_i2c()
     ESP_ERROR_CHECK(scd4x_start_low_power_periodic_measurement());
 
     add_bmx_device_to_i2c_bus();
-    ESP_ERROR_CHECK(bmx_configure_device());
+
+    const int max_attempts = 5;
+    esp_err_t err = ESP_FAIL;
+
+    // Allow the sensor to settle before the first configuration attempt.
+    vTaskDelay(pdMS_TO_TICKS(100) + 1);
+    for (int attempt = 1; attempt <= max_attempts; ++attempt)
+    {
+        err = bmx_configure_device();
+        if (err == ESP_OK)
+        {
+            break;
+        }
+
+        ESP_LOGW(TAG, "BMx configuration attempt %d/%d failed: %d",
+                 attempt, max_attempts, (int)err);
+        if (attempt < max_attempts)
+        {
+            vTaskDelay(pdMS_TO_TICKS(100) + 1);
+        }
+    }
+    ESP_ERROR_CHECK(err);
 }
 
 #if CONFIG_DEBUG_HTTP_CLIENT
@@ -224,7 +246,7 @@ void send_metrics()
 
     cJSON *metric_uptime = cJSON_CreateObject();
     cJSON_AddStringToObject(metric_uptime, "name", "uptime");
-    cJSON_AddNumberToObject(metric_uptime, "value", esp_timer_get_time() / 1000000);
+    cJSON_AddNumberToObject(metric_uptime, "value", uptime_us() / 1000000);
     cJSON_AddStringToObject(metric_uptime, "type", "IGAUGE");
     cJSON_AddItemToArray(metrics, metric_uptime);
 
@@ -233,6 +255,7 @@ void send_metrics()
     // 3. Настройка HTTP клиента
     esp_http_client_config_t config = {
         .method = HTTP_METHOD_POST,
+        .timeout_ms = 5000,
         .transport_type = HTTP_TRANSPORT_OVER_SSL,
         .host = "monitoring.api.cloud.yandex.net",
         .path = "/monitoring/v2/data/write",
@@ -245,7 +268,7 @@ void send_metrics()
 
     // Установка заголовков
     esp_http_client_set_header(client, "Content-Type", "application/json");
-    esp_http_client_set_header(client, "Authorization", ("Bearer " CONFIG_MONITORING_TOKEN));
+    esp_http_client_set_header(client, "Authorization", "Bearer " MONITORING_TOKEN);
 
     // Установка тела запроса
     esp_http_client_set_post_field(client, post_data, strlen(post_data));
@@ -269,6 +292,7 @@ void send_metrics()
 
 void app_main(void)
 {
+    watchdog_start();
     wifi_init_nvs();
     wifi_init_sta();
 
@@ -300,6 +324,7 @@ void app_main(void)
             ESP_LOGI(TAG, "data from sensirion is not available");
         }
         send_metrics();
+        watchdog_feed();
         vTaskDelayUntil(&xCycleStartTime, pdMS_TO_TICKS(10000));
     }
 }
