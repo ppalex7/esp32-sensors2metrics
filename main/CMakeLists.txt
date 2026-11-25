@@ -1,3 +1,8 @@
+if(CONFIG_LOCAL_WEB_SERVER_ENABLED)
+    set(web_server_sources "device_status.c" "web_server.c")
+    set(web_server_html "index.html")
+endif()
+
 idf_component_register(SRCS
                               "main.c" 
                               "bmp.c"
@@ -5,8 +10,7 @@ idf_component_register(SRCS
                               "wifi.c"
                               "watchdog.c"
                               "device_config.c"
-                              "device_status.c"
-                              "web_server.c"
+                              ${web_server_sources}
                            
                        PRIV_REQUIRES
                               cjson
@@ -22,4 +26,4 @@ idf_component_register(SRCS
                               bmx-wrapper
                               scd4x-wrapper
                        INCLUDE_DIRS "."
-                       EMBED_TXTFILES "index.html")
+                       EMBED_TXTFILES ${web_server_html})

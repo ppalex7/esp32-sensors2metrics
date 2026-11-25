@@ -14,8 +14,10 @@
 
 #include "credentials.h"
 #include "device_config.h"
+#ifdef CONFIG_LOCAL_WEB_SERVER_ENABLED
 #include "device_status.h"
 #include "web_server.h"
+#endif
 #include "wifi.h"
 #include "bmp.h"
 #include "metrics.h"
@@ -304,19 +306,21 @@ void app_main(void)
     esp_err_t config_err = device_config_init();
     if (config_err != ESP_OK)
     {
-        ESP_LOGE(TAG, "Failed to load labels: %s; configure them on the web page", esp_err_to_name(config_err));
+        ESP_LOGE(TAG, "Failed to load labels: %s", esp_err_to_name(config_err));
     }
     wifi_init_sta();
 
-    device_status_publish(&pressure_metrics, &co2_metrics, false);
     configure_gpio();
     configure_i2c();
+#ifdef CONFIG_LOCAL_WEB_SERVER_ENABLED
+    device_status_publish(&pressure_metrics, &co2_metrics, false);
     // Do not stop sensor measurements if the local HTTP server cannot start.
     esp_err_t web_err = web_server_start();
     if (web_err != ESP_OK)
     {
         ESP_LOGE(TAG, "Failed to start local web server: %s", esp_err_to_name(web_err));
     }
+#endif
 
 #if CONFIG_DEBUG_HTTP_CLIENT
     esp_log_level_set("HTTP_CLIENT", ESP_LOG_VERBOSE);
@@ -342,7 +346,9 @@ void app_main(void)
             co2_ready = false;
             ESP_LOGI(TAG, "data from sensirion is not available");
         }
+#ifdef CONFIG_LOCAL_WEB_SERVER_ENABLED
         device_status_publish(&pressure_metrics, &co2_metrics, co2_ready);
+#endif
         send_metrics();
         watchdog_feed();
         vTaskDelayUntil(&xCycleStartTime, pdMS_TO_TICKS(10000));

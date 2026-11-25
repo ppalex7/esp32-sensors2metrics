@@ -5,6 +5,17 @@ menu "WiFi Configuration"
                 
 endmenu
 
+menu "Local web server"
+    config LOCAL_WEB_SERVER_ENABLED
+        bool "Enable local HTTP server"
+        default y
+        help
+            Serve the sensor status page and JSON API over HTTP.
+            Disable for battery-powered devices that use deep sleep.
+            Monitoring labels are still loaded from NVS when disabled;
+            configure them before flashing without the web server.
+endmenu
+
 menu "Yandex.Monitoring configuration"
         config MONITORING_FOLDER
         string "Yandex Cloud Folder id"

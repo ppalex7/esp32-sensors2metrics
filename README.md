@@ -37,6 +37,12 @@ Labels can contain up to 128 UTF-8 bytes each. Leading/trailing ASCII whitespace
 
 The HTTP page is intended for a trusted local network; it has no authentication or TLS. Do not expose the device HTTP port to the Internet or an untrusted network.
 
+### Disable the local web server
+
+In `idf.py menuconfig`, open **Local web server → Enable local HTTP server** (`CONFIG_LOCAL_WEB_SERVER_ENABLED`, enabled by default). Turning it off excludes the web handlers, status snapshots and embedded HTML from the application and prevents any local HTTP server from starting. Sensor readings and outgoing monitoring requests continue to work.
+
+For battery-powered devices, configure `location` and `room` once using a web-enabled build, then flash the web-disabled build without erasing NVS. Labels are still loaded from NVS; monitoring is skipped if either is missing. Neither the page nor the local JSON API is available with the web server disabled.
+
 ### Local HTTP API
 
 - `GET /api/status`: current labels, measurements (`value` and `ready`), SCD40 data readiness, uptime and whether labels permit sending.
