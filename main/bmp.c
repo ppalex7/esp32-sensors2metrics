@@ -152,20 +152,55 @@ void bmx_read_measurement(SensorMetrics *measurement)
 {
     measurement->valid.all_flags = 0;
 #ifdef CONFIG_SENSOR_BMP580
-    struct bmp5_sensor_data data = {0};
-    ESP_LOGD(TAG, "call bmp5_get_sensor_data");
-    int result = bmp5_get_sensor_data(&data, &osr_odr_cfg, &bmx_sensor);
-    if (result == BMP5_OK)
+    enum { max_failures = 3 };
+    static unsigned int consecutive_failures = 0;
+
+    // Skip reads while a failed reinitialization is pending.
+    if (consecutive_failures < max_failures)
     {
-        measurement->pressure = data.pressure;
-        measurement->valid.has_pres = 1;
-        measurement->temperature = data.temperature;
-        measurement->valid.has_temp = 1;
-        ESP_LOGI(TAG, "temperature=%.2f, pressure=%06.1f", measurement->temperature, measurement->pressure);
+        struct bmp5_sensor_data data = {0};
+        ESP_LOGD(TAG, "call bmp5_get_sensor_data");
+        int result = bmp5_get_sensor_data(&data, &osr_odr_cfg, &bmx_sensor);
+        if (result != BMP5_OK)
+        {
+            ESP_LOGW(TAG, "bmp5_get_sensor_data failed: %d", result);
+        }
+        else if (data.temperature == 0x7F7F7F / 65536.0f ||
+                 data.pressure == 0x7F7F7F / 64.0f)
+        {
+            // The data registers contain their reset values, not a measurement.
+            ESP_LOGW(TAG, "BMP580 measurement not initialized: T=%.2f, P=%.2f",
+                     data.temperature, data.pressure);
+        }
+        else
+        {
+            consecutive_failures = 0;
+            measurement->pressure = data.pressure;
+            measurement->valid.has_pres = 1;
+            measurement->temperature = data.temperature;
+            measurement->valid.has_temp = 1;
+            ESP_LOGI(TAG, "temperature=%.2f, pressure=%06.1f", measurement->temperature, measurement->pressure);
+            return;
+        }
+
+        ++consecutive_failures;
+        ESP_LOGW(TAG, "BMP580 consecutive measurement failures: %u/%u",
+                 consecutive_failures, (unsigned int)max_failures);
     }
-    else
+
+    if (consecutive_failures >= max_failures)
     {
-        ESP_LOGW(TAG, "bmp5_get_sensor_data failed: %d", result);
+        ESP_LOGW(TAG, "Reinitializing BMP580");
+        esp_err_t err = bmx_configure_device();
+        if (err == ESP_OK)
+        {
+            consecutive_failures = 0;
+            ESP_LOGI(TAG, "BMP580 reinitialized successfully");
+        }
+        else
+        {
+            ESP_LOGW(TAG, "BMP580 reinitialization failed: %d; retrying next cycle", (int)err);
+        }
     }
 #endif
 #ifdef CONFIG_SENSOR_BME280
