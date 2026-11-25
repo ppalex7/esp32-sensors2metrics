@@ -4,10 +4,12 @@
 #include <string.h>
 
 #include "freertos/FreeRTOS.h"
+#ifdef CONFIG_LOCAL_WEB_SERVER_ENABLED
 #include "nvs.h"
 
 static const char *NAMESPACE = "device_config";
 static const char *KEY = "labels";
+#endif
 static DeviceLabels labels;
 static portMUX_TYPE labels_lock = portMUX_INITIALIZER_UNLOCKED;
 
@@ -46,6 +48,7 @@ static void publish_labels(const DeviceLabels *value)
 
 esp_err_t device_config_init(void)
 {
+#ifdef CONFIG_LOCAL_WEB_SERVER_ENABLED
     nvs_handle_t handle;
     esp_err_t err = nvs_open(NAMESPACE, NVS_READONLY, &handle);
     if (err == ESP_ERR_NVS_NOT_FOUND) {
@@ -73,6 +76,14 @@ esp_err_t device_config_init(void)
         return ESP_ERR_INVALID_STATE;
     }
     publish_labels(&normalized);
+#else
+    DeviceLabels configured = {0};
+    if (!normalize_label(CONFIG_MONITORING_LABEL_LOCATION, configured.location) ||
+        !normalize_label(CONFIG_MONITORING_LABEL_ROOM, configured.room)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    publish_labels(&configured);
+#endif
     return ESP_OK;
 }
 
@@ -89,6 +100,7 @@ bool device_config_ready(const DeviceLabels *value)
     return value->location[0] != '\0' && value->room[0] != '\0';
 }
 
+#ifdef CONFIG_LOCAL_WEB_SERVER_ENABLED
 esp_err_t device_config_save(const char *location, const char *room)
 {
     DeviceLabels updated = {0};
@@ -117,3 +129,4 @@ esp_err_t device_config_save(const char *location, const char *room)
     }
     return err;
 }
+#endif

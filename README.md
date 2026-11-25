@@ -23,7 +23,7 @@ Changing a partition layout can affect previously stored flash data. Normally on
 
 ## Build-time settings
 
-Copy `main/credentials.h.example` to `main/credentials.h` and set the Wi-Fi credentials and Monitoring token locally. Configure the Monitoring folder ID, pressure sensor and GPIOs as before. The `location` and `room` settings are no longer part of the build configuration.
+Copy `main/credentials.h.example` to `main/credentials.h` and set the Wi-Fi credentials and Monitoring token locally. Configure the Monitoring folder ID, pressure sensor and GPIOs as before. The `location` and `room` build settings are available only when the local HTTP server is disabled.
 
 For a local defaults file, use `sdkconfig.defaults.local` (ignored by Git), e.g. `idf.py -D SDKCONFIG_DEFAULTS='sdkconfig.defaults;sdkconfig.defaults.local' build`.
 
@@ -41,7 +41,9 @@ The HTTP page is intended for a trusted local network; it has no authentication 
 
 In `idf.py menuconfig`, open **Local web server → Enable local HTTP server** (`CONFIG_LOCAL_WEB_SERVER_ENABLED`, enabled by default). Turning it off excludes the web handlers, status snapshots and embedded HTML from the application and prevents any local HTTP server from starting. Sensor readings and outgoing monitoring requests continue to work.
 
-For battery-powered devices, configure `location` and `room` once using a web-enabled build, then flash the web-disabled build without erasing NVS. Labels are still loaded from NVS; monitoring is skipped if either is missing. Neither the page nor the local JSON API is available with the web server disabled.
+For battery-powered devices, disable the HTTP server and enter `location` and `room` under **Yandex.Monitoring configuration** in `menuconfig`. The web-disabled build only uses these compiled-in labels and does not read or overwrite the labels in NVS. Monitoring is skipped if either configured label is empty or invalid. Neither the page nor the local JSON API is available with the web server disabled.
+
+When the HTTP server is enabled, both build settings are hidden and ignored, even if they were previously saved in `sdkconfig`. The firmware uses only the labels stored in NVS. Switching between the two build modes does not overwrite the saved NVS labels.
 
 ### Local HTTP API
 

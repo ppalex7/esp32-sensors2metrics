@@ -12,14 +12,23 @@ menu "Local web server"
         help
             Serve the sensor status page and JSON API over HTTP.
             Disable for battery-powered devices that use deep sleep.
-            Monitoring labels are still loaded from NVS when disabled;
-            configure them before flashing without the web server.
+            When enabled, monitoring labels are stored in NVS.
+            When disabled, configure them in Yandex.Monitoring configuration.
 endmenu
 
 menu "Yandex.Monitoring configuration"
         config MONITORING_FOLDER
         string "Yandex Cloud Folder id"
-        
+
+        config MONITORING_LABEL_LOCATION
+        string "Value for label 'location'"
+        depends on !LOCAL_WEB_SERVER_ENABLED
+        default ""
+
+        config MONITORING_LABEL_ROOM
+        string "Value for label 'room'"
+        depends on !LOCAL_WEB_SERVER_ENABLED
+        default ""
 endmenu
 
 menu "Sensors Configuration"
