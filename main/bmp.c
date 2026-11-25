@@ -82,12 +82,14 @@ esp_err_t bmx_configure_device()
     int8_t ret;
 
 #ifdef CONFIG_SENSOR_BMP580
-    // Reset before init, which checks NVM readiness.
-    ret = bmp5_soft_reset(&bmx_sensor);
+    // Reset without reading INT_STATUS: its POR flag is cleared on read
+    // and may be needed by bmp5_init().
+    const uint8_t reset_cmd = BMP5_SOFT_RESET_CMD;
+    ret = bmp5_set_regs(BMP5_REG_CMD, &reset_cmd, 1, &bmx_sensor);
     vTaskDelay(pdMS_TO_TICKS(20) + 1);
     if (ret != BMP5_OK)
     {
-        return log_configuration_error("bmp5_soft_reset", ret);
+        return log_configuration_error("bmp5_set_regs (soft reset)", ret);
     }
 
     ret = bmp5_init(&bmx_sensor);
