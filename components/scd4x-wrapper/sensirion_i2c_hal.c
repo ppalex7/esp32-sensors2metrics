@@ -35,5 +35,8 @@ int8_t sensirion_i2c_hal_write(uint8_t address, const uint8_t *data, uint8_t cou
 void sensirion_i2c_hal_sleep_usec(uint32_t useconds)
 {
     ESP_LOGV(TAG, "Delay for %d uSeconds", useconds);
-    vTaskDelay(((useconds / 1000) + portTICK_PERIOD_MS - 1) / portTICK_PERIOD_MS);
+    // Round up and add a tick so command execution time cannot be shortened
+    // by entering vTaskDelay just before a tick boundary.
+    const uint32_t tick_us = portTICK_PERIOD_MS * 1000U;
+    vTaskDelay(useconds / tick_us + (useconds % tick_us != 0) + 1);
 }

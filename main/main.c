@@ -13,6 +13,14 @@
 #include "scd4x_i2c.h"
 
 #include "credentials.h"
+#include "device_config.h"
+#ifdef CONFIG_LOCAL_WEB_SERVER_ENABLED
+#include "device_status.h"
+#include "web_server.h"
+#endif
+#ifdef CONFIG_SCD40_TEMPERATURE_CALIBRATION_ENABLED
+#include "temperature_calibration.h"
+#endif
 #include "wifi.h"
 #include "bmp.h"
 #include "metrics.h"
@@ -188,15 +196,19 @@ esp_err_t _http_event_handler(esp_http_client_event_t *evt)
 
 void send_metrics()
 {
+    DeviceLabels device_labels = device_config_get();
+    if (!device_config_ready(&device_labels))
+    {
+        ESP_LOGI(TAG, "Skip monitoring: location and room must both be set");
+        return;
+    }
+
     ESP_LOGD(TAG, "prepare JSON data for monitoring");
     cJSON *root = cJSON_CreateObject();
 
     cJSON *labels = cJSON_AddObjectToObject(root, "labels");
-#if CONFIG_MONITORING_LABEL_LOCATION_IS_EMPTY
-#error "location label is mandatory"
-#endif
-    cJSON_AddStringToObject(labels, "location", CONFIG_MONITORING_LABEL_LOCATION);
-    cJSON_AddStringToObject(labels, "room", CONFIG_MONITORING_LABEL_ROOM);
+    cJSON_AddStringToObject(labels, "location", device_labels.location);
+    cJSON_AddStringToObject(labels, "room", device_labels.room);
     if (b_tmp_metric)
     {
         cJSON_AddBoolToObject(labels, "debug", cJSON_True);
@@ -294,16 +306,29 @@ void app_main(void)
 {
     watchdog_start();
     wifi_init_nvs();
+    esp_err_t config_err = device_config_init();
+    if (config_err != ESP_OK)
+    {
+        ESP_LOGE(TAG, "Failed to load labels: %s", esp_err_to_name(config_err));
+    }
     wifi_init_sta();
 
     configure_gpio();
     configure_i2c();
+#ifdef CONFIG_LOCAL_WEB_SERVER_ENABLED
+    device_status_publish(&pressure_metrics, &co2_metrics, false);
+    // Do not stop sensor measurements if the local HTTP server cannot start.
+    esp_err_t web_err = web_server_start();
+    if (web_err != ESP_OK)
+    {
+        ESP_LOGE(TAG, "Failed to start local web server: %s", esp_err_to_name(web_err));
+    }
+#endif
 
 #if CONFIG_DEBUG_HTTP_CLIENT
     esp_log_level_set("HTTP_CLIENT", ESP_LOG_VERBOSE);
 #endif
 
-    bool co2_ready = false;
     TickType_t xCycleStartTime;
     while (1)
     {
@@ -314,15 +339,22 @@ void app_main(void)
             scd4x_set_ambient_pressure((uint32_t)pressure_metrics.pressure);
         }
 
-        scd4x_get_data_ready_status(&co2_ready);
-        if (co2_ready)
+        bool co2_ready = false;
+        if (scd4x_get_data_ready_status(&co2_ready) == 0 && co2_ready)
         {
             sensirion_read_measurement(&co2_metrics);
         }
         else
         {
+            co2_ready = false;
             ESP_LOGI(TAG, "data from sensirion is not available");
         }
+#ifdef CONFIG_SCD40_TEMPERATURE_CALIBRATION_ENABLED
+        temperature_calibration_process(&pressure_metrics, &co2_metrics, &co2_ready);
+#endif
+#ifdef CONFIG_LOCAL_WEB_SERVER_ENABLED
+        device_status_publish(&pressure_metrics, &co2_metrics, co2_ready);
+#endif
         send_metrics();
         watchdog_feed();
         vTaskDelayUntil(&xCycleStartTime, pdMS_TO_TICKS(10000));
