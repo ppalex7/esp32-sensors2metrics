@@ -14,6 +14,14 @@ menu "Local web server"
             Disable for battery-powered devices that use deep sleep.
             When enabled, monitoring labels are stored in NVS.
             When disabled, configure them in Yandex.Monitoring configuration.
+
+    config SCD40_TEMPERATURE_CALIBRATION_ENABLED
+        bool "Enable SCD40 temperature offset calibration"
+        depends on LOCAL_WEB_SERVER_ENABLED
+        default y
+        help
+            Allow one-time temperature offset calibration against the pressure
+            sensor temperature from the local web page and persist it in SCD40.
 endmenu
 
 menu "Yandex.Monitoring configuration"

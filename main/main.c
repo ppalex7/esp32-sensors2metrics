@@ -18,6 +18,9 @@
 #include "device_status.h"
 #include "web_server.h"
 #endif
+#ifdef CONFIG_SCD40_TEMPERATURE_CALIBRATION_ENABLED
+#include "temperature_calibration.h"
+#endif
 #include "wifi.h"
 #include "bmp.h"
 #include "metrics.h"
@@ -346,6 +349,9 @@ void app_main(void)
             co2_ready = false;
             ESP_LOGI(TAG, "data from sensirion is not available");
         }
+#ifdef CONFIG_SCD40_TEMPERATURE_CALIBRATION_ENABLED
+        temperature_calibration_process(&pressure_metrics, &co2_metrics, &co2_ready);
+#endif
 #ifdef CONFIG_LOCAL_WEB_SERVER_ENABLED
         device_status_publish(&pressure_metrics, &co2_metrics, co2_ready);
 #endif

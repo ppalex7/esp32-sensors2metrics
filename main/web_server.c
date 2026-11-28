@@ -11,6 +11,9 @@
 #include "device_config.h"
 #include "device_status.h"
 #include "watchdog.h"
+#ifdef CONFIG_SCD40_TEMPERATURE_CALIBRATION_ENABLED
+#include "temperature_calibration.h"
+#endif
 
 static const char *TAG = "web_server";
 extern const char index_html_start[] asm("_binary_index_html_start");
@@ -53,6 +56,60 @@ static bool add_reading(cJSON *sensor, const char *name, double value, bool read
                   : cJSON_AddNullToObject(reading, "value"));
 }
 
+#ifdef CONFIG_SCD40_TEMPERATURE_CALIBRATION_ENABLED
+static const char *calibration_state_name(CalibrationState state)
+{
+    switch (state) {
+        case CALIBRATION_PENDING: return "pending";
+        case CALIBRATION_RUNNING: return "running";
+        case CALIBRATION_SUCCEEDED: return "succeeded";
+        case CALIBRATION_FAILED: return "failed";
+        default: return "idle";
+    }
+}
+
+static bool add_calibration_status(cJSON *root)
+{
+    TemperatureCalibration job = temperature_calibration_get();
+    cJSON *object = cJSON_AddObjectToObject(root, "scd40_temperature_calibration");
+    return object && cJSON_AddNumberToObject(object, "id", job.id) &&
+           cJSON_AddStringToObject(object, "state", calibration_state_name(job.state)) &&
+           cJSON_AddBoolToObject(object, "persisted", job.persisted) &&
+           (!job.has_temperatures ||
+            (cJSON_AddNumberToObject(object, "reference_temperature", job.reference_temperature) &&
+             cJSON_AddNumberToObject(object, "scd40_temperature", job.scd40_temperature))) &&
+           (!job.has_old_offset || cJSON_AddNumberToObject(object, "old_offset_raw", job.old_offset_raw)) &&
+           (!job.has_new_offset || cJSON_AddNumberToObject(object, "new_offset_raw", job.new_offset_raw)) &&
+           (!job.error || cJSON_AddStringToObject(object, "error", job.error));
+}
+
+static esp_err_t calibrate_temperature_handler(httpd_req_t *req)
+{
+    // Require a non-simple browser content type. No parameters are accepted:
+    // the reference and measured temperatures come from the sensor task.
+    char content_type[32];
+    if (req->content_len != 0 ||
+        httpd_req_get_hdr_value_str(req, "Content-Type", content_type, sizeof(content_type)) != ESP_OK ||
+        strcasecmp(content_type, "application/json") != 0) {
+        return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Expected an empty application/json request");
+    }
+
+    uint32_t id;
+    if (!temperature_calibration_request(&id)) {
+        httpd_resp_set_status(req, "409 Conflict");
+        return httpd_resp_sendstr(req, "Calibration already in progress");
+    }
+
+    cJSON *root = cJSON_CreateObject();
+    if (!root || !cJSON_AddNumberToObject(root, "id", id)) {
+        cJSON_Delete(root);
+        return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Out of memory");
+    }
+    httpd_resp_set_status(req, "202 Accepted");
+    return send_json(req, root);
+}
+#endif
+
 static esp_err_t status_handler(httpd_req_t *req)
 {
     DeviceLabels labels = device_config_get();
@@ -74,7 +131,11 @@ static esp_err_t status_handler(httpd_req_t *req)
               add_reading(co2, "temperature", c->temperature, c->valid.has_temp) &&
               add_reading(co2, "relative_humidity", c->humidity, c->valid.has_hum) &&
               add_reading(co2, "co2_concentration", c->co2, c->valid.has_co2) &&
-              cJSON_AddBoolToObject(root, "scd40_data_ready", status.co2_data_ready);
+              cJSON_AddBoolToObject(root, "scd40_data_ready", status.co2_data_ready)
+#ifdef CONFIG_SCD40_TEMPERATURE_CALIBRATION_ENABLED
+              && add_calibration_status(root)
+#endif
+              ;
 
     if (!ok) {
         cJSON_Delete(root);
@@ -188,6 +249,9 @@ esp_err_t web_server_start(void)
         {.uri = "/", .method = HTTP_GET, .handler = index_handler},
         {.uri = "/api/status", .method = HTTP_GET, .handler = status_handler},
         {.uri = "/api/labels", .method = HTTP_POST, .handler = labels_handler},
+#ifdef CONFIG_SCD40_TEMPERATURE_CALIBRATION_ENABLED
+        {.uri = "/api/scd40/calibrate-temperature", .method = HTTP_POST, .handler = calibrate_temperature_handler},
+#endif
     };
     for (size_t i = 0; i < sizeof(routes) / sizeof(routes[0]); ++i) {
         err = httpd_register_uri_handler(server, &routes[i]);

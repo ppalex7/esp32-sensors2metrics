@@ -19,6 +19,10 @@
   <h2>Current measurements</h2>
   <table><thead><tr><th>Sensor</th><th>Measurement</th><th>Value</th><th>Ready</th></tr></thead><tbody id="readings"></tbody></table>
   <p class="muted" id="details"></p>
+  <section id="calibration" hidden>
+    <button id="calibrate" type="button" disabled>Calibrate SCD40 temperature offset</button>
+    <span id="calibration-status" role="status"></span>
+  </section>
   <h2>Monitoring labels</h2>
   <p id="sending"></p>
   <p class="muted" id="saved-labels"></p>
@@ -33,6 +37,7 @@
     const el = id => document.getElementById(id);
     const form = el('settings'), locationInput = el('location'), roomInput = el('room');
     let initialized = false, saving = false;
+    let calibrating = false, referenceSensor = '';
     const measurements = {temperature:['Temperature','°C',2],air_pressure:['Air pressure','Pa',1],relative_humidity:['Humidity','%',1],co2_concentration:['CO₂','ppm',0]};
     function showLabels(data, updateInputs) {
       el('sending').textContent = data.labels_ready ? 'Saved labels: sending enabled' : 'Saved labels: sending disabled (labels missing)';
@@ -61,12 +66,66 @@
       el('readings').replaceChildren(...rows);
       el('details').textContent = 'SCD40 new measurement in last cycle: ' + data.scd40_data_ready + ' · Uptime: ' + data.uptime + ' s';
     }
+    function showCalibration(data) {
+      const job = data.scd40_temperature_calibration;
+      referenceSensor = Object.keys(data.sensors).find(name => name === 'BMP580' || name === 'BME280');
+      const available = !!(job && data.sensors.SCD40 && referenceSensor);
+      el('calibration').hidden = !available;
+      if (available) {
+        const busy = job.state === 'pending' || job.state === 'running';
+        el('calibrate').disabled = calibrating || busy;
+        if (!calibrating) {
+          el('calibration-status').textContent = busy ? 'Calibration in progress…'
+            : job.state === 'succeeded' ? 'Last calibration: saved ' + formatOffset(job.new_offset_raw)
+            : job.state === 'failed' ? 'Last calibration: ' + job.error : '';
+        }
+      }
+    }
+    function formatOffset(raw) {
+      return raw === undefined ? 'Unknown' : (raw * 175 / 65535).toFixed(3) + ' °C (0x' + raw.toString(16).toUpperCase().padStart(4, '0') + ')';
+    }
+    el('calibrate').addEventListener('click', async () => {
+      if (calibrating || !referenceSensor || !confirm('Calibrate SCD40 using ' + referenceSensor + ' as the reference and save to sensor EEPROM? Both sensors should be at thermal equilibrium.')) return;
+      calibrating = true;
+      el('calibrate').disabled = true;
+      el('calibration-status').textContent = 'Waiting for fresh measurements…';
+      try {
+        const response = await fetch('/api/scd40/calibrate-temperature', {method:'POST',headers:{'Content-Type':'application/json'},signal:AbortSignal.timeout(5000)});
+        if (!response.ok) throw new Error(await response.text());
+        const {id} = await response.json();
+        const deadline = Date.now() + 85000;
+        let job;
+        while (Date.now() < deadline) {
+          await new Promise(resolve => setTimeout(resolve, 2000));
+          const status = await fetch('/api/status', {cache:'no-store',signal:AbortSignal.timeout(5000)});
+          if (!status.ok) throw new Error('HTTP ' + status.status);
+          job = (await status.json()).scd40_temperature_calibration;
+          if (!job || job.id !== id) throw new Error('Calibration request no longer available');
+          if (job.state === 'succeeded' || job.state === 'failed') break;
+          el('calibration-status').textContent = job.state === 'running' ? 'Saving offset…' : 'Waiting for fresh measurements…';
+        }
+        if (!job || (job.state !== 'succeeded' && job.state !== 'failed')) throw new Error('Timed out waiting for the result');
+        let message = job.state === 'succeeded' ? 'Calibration complete.' : 'Calibration failed: ' + job.error;
+        if (job.reference_temperature !== undefined) {
+          message += '\n' + referenceSensor + ': ' + job.reference_temperature.toFixed(2) + ' °C\nSCD40: ' + job.scd40_temperature.toFixed(2) + ' °C';
+        }
+        message += '\nOld offset: ' + formatOffset(job.old_offset_raw) + '\n' + (job.persisted ? 'New offset: ' : 'Proposed offset: ') + formatOffset(job.new_offset_raw) + '\nEEPROM saved: ' + (job.persisted ? 'yes' : 'not confirmed');
+        alert(message);
+      } catch (error) {
+        alert('Calibration result unavailable: ' + error.message + '. Check device status before retrying.');
+      } finally {
+        calibrating = false;
+        el('calibration-status').textContent = '';
+        // The regular status refresh re-enables the button only when no request is active.
+      }
+    });
     async function refresh() {
       try {
         const response = await fetch('/api/status', {cache:'no-store'});
         if (!response.ok) throw new Error('HTTP ' + response.status);
         const data = await response.json();
         showReadings(data);
+        showCalibration(data);
         if (!saving) showLabels(data, !initialized);
         if (!initialized) {
           initialized = true;

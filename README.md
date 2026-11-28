@@ -49,3 +49,11 @@ When the HTTP server is enabled, both build settings are hidden and ignored, eve
 
 - `GET /api/status`: current labels, measurements (`value` and `ready`), SCD40 data readiness, uptime and whether labels permit sending.
 - `POST /api/labels`: set both labels with `Content-Type: application/json`, e.g. `{"location":"home","room":"living_room"}`. Returns the saved values or an HTTP error if validation or NVS saving fails. An empty string is accepted to disable submission.
+
+### SCD40 temperature offset calibration
+
+With **Local web server → Enable SCD40 temperature offset calibration** enabled (the default), the status page offers a manual calibration button. Let the assembled device reach thermal equilibrium in its normal operating mode before using it. BMP580/BME280 is treated as the reference thermometer; its own temperature accuracy and self-heating affect the result.
+
+The sensor task waits up to 60 seconds for a fresh, valid reading from both sensors. It stops SCD40 measurement, reads the existing offset, calculates `new offset = old offset + SCD40 temperature - reference temperature`, and rejects values outside the recommended 0–20 °C range. It verifies the raw offset before issuing `persist_settings` to save it in the sensor's own EEPROM, then resumes low-power periodic measurements. The alert shows temperatures, old/new offsets in °C and hexadecimal, and whether persistence succeeded. A new SCD40 sample can take approximately 30 seconds after restarting measurements. Calibration is manual because EEPROM writes are limited.
+
+API: `POST /api/scd40/calibrate-temperature` with an empty body and `Content-Type: application/json` queues a calibration and returns `202 Accepted` with an `id`. Poll `GET /api/status` for `scd40_temperature_calibration`: `state` is `idle`, `pending`, `running`, `succeeded` or `failed`. The terminal status includes available old/new raw offsets, reference/SCD40 temperatures, `persisted` and any error. A concurrent request returns `409 Conflict`. When calibration is disabled at build time, the endpoint and status field are omitted and the button remains hidden.
